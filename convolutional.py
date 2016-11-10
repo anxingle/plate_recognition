@@ -1,16 +1,3 @@
-# Copyright 2015 The TensorFlow Authors. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 # ==============================================================================
 
 """Simple, end-to-end, LeNet-5-like convolutional MNIST model example.
@@ -32,20 +19,22 @@ import numpy
 from six.moves import urllib
 from six.moves import xrange  # pylint: disable=redefined-builtin
 import tensorflow as tf
-import load_data
+from load_data import read_data_sets as input_data
 
-SOURCE_URL = 'http://yann.lecun.com/exdb/mnist/'
+
 WORK_DIRECTORY = 'data'
+ROW = 80
+COL = 120
 IMAGE_SIZE = 28
 NUM_CHANNELS = 1
 PIXEL_DEPTH = 255
 NUM_LABELS = 10
-VALIDATION_SIZE = 5000  # Size of the validation set.
+VALIDATION_SIZE = 50  # Size of the validation set.
 SEED = 66478  # Set to None for random seed.
-BATCH_SIZE = 64
-NUM_EPOCHS = 10
-EVAL_BATCH_SIZE = 64
-EVAL_FREQUENCY = 100  # Number of steps between evaluations.
+BATCH_SIZE = 500
+NUM_EPOCHS = 900
+EVAL_BATCH_SIZE = 100
+EVAL_FREQUENCY = 300  # Number of steps between evaluations.
 
 
 tf.app.flags.DEFINE_boolean("self_test", False, "True if running a self test.")
@@ -53,17 +42,6 @@ tf.app.flags.DEFINE_boolean('use_fp16', False,
                             "Use half floats instead of full floats if True.")
 FLAGS = tf.app.flags.FLAGS
 
-class ConfigureModel(object):
-    train_dir = "/home/a/workspace/ssd/DataSets/ocr_len34/"
-    test_dir  = "/home/a/workspace/ssd/DataSets/ocr_len34_test/"
-    nclasses = 10
-    # Training params
-    training_epochs =  2200
-    batch_size      =  2200
-    display_step    =  10
-    learning_rate   =  0.001
-    num_layers      =  1
-    validation = 1500
 
 def data_type():
   """Return the type of the activations, weights, and placeholder variables."""
@@ -71,6 +49,44 @@ def data_type():
     return tf.float16
   else:
     return tf.float32
+
+
+def maybe_download(filename):
+  """Download the data from Yann's website, unless it's already here."""
+  if not tf.gfile.Exists(WORK_DIRECTORY):
+    tf.gfile.MakeDirs(WORK_DIRECTORY)
+  filepath = os.path.join(WORK_DIRECTORY, filename)
+  if not tf.gfile.Exists(filepath):
+    filepath, _ = urllib.request.urlretrieve(SOURCE_URL + filename, filepath)
+    with tf.gfile.GFile(filepath) as f:
+      size = f.Size()
+    print('Successfully downloaded', filename, size, 'bytes.')
+  return filepath
+
+
+def extract_data(filename, num_images):
+  """Extract the images into a 4D tensor [image index, y, x, channels].
+
+  Values are rescaled from [0, 255] down to [-0.5, 0.5].
+  """
+  print('Extracting', filename)
+  with gzip.open(filename) as bytestream:
+    bytestream.read(16)
+    buf = bytestream.read(IMAGE_SIZE * IMAGE_SIZE * num_images * NUM_CHANNELS)
+    data = numpy.frombuffer(buf, dtype=numpy.uint8).astype(numpy.float32)
+    data = (data - (PIXEL_DEPTH / 2.0)) / PIXEL_DEPTH
+    data = data.reshape(num_images, IMAGE_SIZE, IMAGE_SIZE, NUM_CHANNELS)
+    return data
+
+
+def extract_labels(filename, num_images):
+  """Extract the labels into a vector of int64 label IDs."""
+  print('Extracting', filename)
+  with gzip.open(filename) as bytestream:
+    bytestream.read(8)
+    buf = bytestream.read(1 * num_images)
+    labels = numpy.frombuffer(buf, dtype=numpy.uint8).astype(numpy.int64)
+  return labels
 
 
 def fake_data(num_images):
@@ -103,21 +119,19 @@ def main(argv=None):  # pylint: disable=unused-argument
     num_epochs = 1
   else:
     # Get the data.
-    '''
-    train_data = extract_data(train_data_filename, 60000)
-    train_labels = extract_labels(train_labels_filename, 60000)
-    test_data = extract_data(test_data_filename, 10000)
-    test_labels = extract_labels(test_labels_filename, 10000)
-    '''
     # Extract it into numpy arrays.
-    plate_images = load_data.read_data_sets(config.train_dir,config.test_dir,one_hot=False,\
-                         validation_size=config.validation)
-
     # Generate a validation set.
-    validation_data = train_data[:VALIDATION_SIZE, ...]
-    validation_labels = train_labels[:VALIDATION_SIZE]
-    train_data = train_data[VALIDATION_SIZE:, ...]
-    train_labels = train_labels[VALIDATION_SIZE:]
+    
+    mnist = input_data(train_dir='/home/a/workspace/ssd/DataSets/mnist_120/',\
+                    test_dir='/home/a/workspace/ssd/DataSets/mnist_120_test/',\
+                   num_class=10, one_hot=False)
+    train_data      = mnist.train.images
+    train_labels    = mnist.train.labels
+    test_data       = mnist.test.images
+    test_labels     = mnist.test.labels
+    validation_data = mnist.validation.images
+    validation_labels= mnist.validation.labels 
+
     num_epochs = NUM_EPOCHS
   train_size = train_labels.shape[0]
 
@@ -126,11 +140,11 @@ def main(argv=None):  # pylint: disable=unused-argument
   # training step using the {feed_dict} argument to the Run() call below.
   train_data_node = tf.placeholder(
       data_type(),
-      shape=(BATCH_SIZE, IMAGE_SIZE, IMAGE_SIZE, NUM_CHANNELS))
+      shape=(BATCH_SIZE, ROW, COL, NUM_CHANNELS))
   train_labels_node = tf.placeholder(tf.int64, shape=(BATCH_SIZE,))
   eval_data = tf.placeholder(
       data_type(),
-      shape=(EVAL_BATCH_SIZE, IMAGE_SIZE, IMAGE_SIZE, NUM_CHANNELS))
+      shape=(EVAL_BATCH_SIZE, ROW, COL, NUM_CHANNELS))
 
   # The variables below hold all the trainable weights. They are passed an
   # initial value which will be assigned when we call:
@@ -145,7 +159,7 @@ def main(argv=None):  # pylint: disable=unused-argument
       seed=SEED, dtype=data_type()))
   conv2_biases = tf.Variable(tf.constant(0.1, shape=[64], dtype=data_type()))
   fc1_weights = tf.Variable(  # fully connected, depth 512.
-      tf.truncated_normal([IMAGE_SIZE // 4 * IMAGE_SIZE // 4 * 64, 512],
+      tf.truncated_normal([ROW // 4 * COL // 4 * 64, 512],
                           stddev=0.1,
                           seed=SEED,
                           dtype=data_type()))
@@ -217,8 +231,8 @@ def main(argv=None):  # pylint: disable=unused-argument
   # Decay once per epoch, using an exponential schedule starting at 0.01.
   learning_rate = tf.train.exponential_decay(
       0.01,                # Base learning rate.
-      batch * BATCH_SIZE,  # Current index into the dataset.
-      train_size,          # Decay step.
+      batch *BATCH_SIZE,  # Current index into the dataset.
+      train_size*100,          # Decay step.
       0.95,                # Decay rate.
       staircase=True)
   # Use simple momentum for the optimization.
@@ -254,6 +268,8 @@ def main(argv=None):  # pylint: disable=unused-argument
         predictions[begin:, :] = batch_predictions[begin - size:, :]
     return predictions
 
+  # save model to predict
+  saver = tf.train.Saver()
   # Create a local session to run the training.
   start_time = time.time()
   with tf.Session() as sess:
@@ -286,6 +302,7 @@ def main(argv=None):  # pylint: disable=unused-argument
         print('Validation error: %.1f%%' % error_rate(
             eval_in_batches(validation_data, sess), validation_labels))
         sys.stdout.flush()
+        saver.save(sess,'./logs/mnist.tfmodel',step)
     # Finally print the result!
     test_error = error_rate(eval_in_batches(test_data, sess), test_labels)
     print('Test error: %.1f%%' % test_error)

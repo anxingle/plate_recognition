@@ -1,13 +1,9 @@
-#!/usr/bin/env python
-# coding=utf-8
-
 """Functions for downloading and reading MNIST data."""
 
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import load_captcha as load
 import gzip
 
 import numpy
@@ -16,7 +12,9 @@ from six.moves import xrange  # pylint: disable=redefined-builtin
 from tensorflow.contrib.learn.python.learn.datasets import base
 from tensorflow.python.framework import dtypes
 from tensorflow.python.platform import gfile
+import load_captcha as load
 
+SOURCE_URL = 'http://yann.lecun.com/exdb/mnist/'
 
 
 def _read32(bytestream):
@@ -88,19 +86,16 @@ class DataSet(object):
       self._num_examples = 10000
       self.one_hot = one_hot
     else:
-      #assert images.shape[0] == labels.shape[0], (
-      #    'images.shape: %s labels.shape: %s' % (images.shape, labels.shape))
+      assert images.shape[0] == labels.shape[0], (
+          'images.shape: %s labels.shape: %s' % (images.shape, labels.shape))
       self._num_examples = images.shape[0]
 
       # Convert shape from [num examples, rows, columns, depth]
       # to [num examples, rows*columns] (assuming depth == 1)
-      #XXX:  load_captcha.py has ReShape it !
-      #XXX:对应于 load_captcha.py 中按列组织图像数据
       if reshape:
-        assert images.shape[1] == 9600,(
-          'image row*col is not 9600********************************')
-        #images = images.reshape(images.shape[0],
-        #                        images.shape[1] * images.shape[2])
+        assert images.shape[3] == 1
+        images = images.reshape(images.shape[0],
+                                images.shape[1] * images.shape[2])
       if dtype == dtypes.float32:
         # Convert from [0, 255] -> [0.0, 1.0].
         images = images.astype(numpy.float32)
@@ -157,16 +152,14 @@ class DataSet(object):
 
 def read_data_sets(train_dir,
                    test_dir,
+                   num_class = 10,
                    one_hot=False,
-                   length_label=1,num_class=10,
                    dtype=dtypes.float32,
-                   reshape=True,
-                   validation_size=500):
-  train_images,train_labels = load.read_data(train_dir,one_hot)
-  print("shape of train_labels:          ")
-  #print(train_labels.shape)
-
-  test_images,test_labels   = load.read_data(test_dir,one_hot) 
+                   reshape=False,
+                   validation_size=200):
+  train_images,train_labels = load.read_data(train_dir, one_hot=one_hot, num_class=num_class)
+  #2000 784   2000 2
+  test_images,test_labels   = load.read_data(test_dir, one_hot=one_hot, num_class=num_class) 
 
   if not 0 <= validation_size <= len(train_images):
     raise ValueError(
